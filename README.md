@@ -2,7 +2,7 @@
 
 A simple local Windows checklist using Python, Tkinter, and SQLite. No pip packages needed.
 The interface focuses on tasks and timing, with daily progress and the current/next
-task. Tasks and Settings stay in one window.
+task. Today, Backlog, 5-Year Goals, and Settings stay in one window.
 
 ## About the app
 
@@ -30,20 +30,31 @@ Closing the window exits the app; it is not a background service or tray app.
 
 ## Use
 
+- **5-Year Goals**: save a goal title and target date (`YYYY-MM-DD`) between
+  today and five years from today. Goals persist locally, sorted with open goals
+  first and then by target date. Press **+ Add goal** or Enter to save. Select
+  a goal to **Mark complete**, **Reopen**, or **Remove** (with confirmation). Overdue goals are labeled; completed goals
+  stay visible, with a completed/total count. The default target is five years
+  ahead (February 29 becomes February 28). These goals are separate from daily
+  task progress and reports; there is no automatic link to backlog tasks.
+
 - **Backlog**: save a title, duration in whole minutes (1-540), and deadline
-  date (`YYYY-MM-DD`). Items are sorted by deadline, with overdue dates labeled.
+  date (`YYYY-MM-DD`). Press **+ Add to backlog** or Enter to save.
+  Items are sorted by deadline, with overdue dates labeled. **Remove** deletes
+  a selected unscheduled item after confirmation.
   Select an item, choose today or a date up to seven days ahead, and use
   **Find free slot** to suggest a start time for its full duration. You can edit
   Start before pressing **Move to day**. The move checks normal schedule rules,
-  removes the item from Backlog, and opens that day's Tasks view. If scheduling
+  removes the item from Backlog, and opens that day's Today view. If scheduling
   fails, the item stays in Backlog. Deadlines are due dates; scheduling after
   them is allowed. Removing an eligible unstarted scheduled task returns it to
   Backlog with its original duration and deadline. Backlog items persist locally
   and do not count toward daily progress until scheduled.
 
-- Switch between **Tasks** and **Settings** tabs in the same window. Settings
-  contains summaries, fixed weekday tasks, the deadline margin, sign-in startup,
-  and About the app.
+- **Today** shows the selected day's schedule; its date arrows also let you
+  browse history and plan ahead. **Backlog** holds unscheduled work,
+  **5-Year Goals** tracks long-term goals, and **Settings** contains summaries,
+  fixed weekday tasks, the deadline margin, sign-in startup, and About the app.
 - **Fixed weekday tasks**: enter Start, End, and Task in the inline row beneath
   the fixed-task table in Settings, then click **+ Add task** (or press Enter).
   No additional window opens, and validation errors appear below the row.
@@ -53,7 +64,7 @@ Closing the window exits the app; it is not a background service or tray app.
   New tasks apply today (if it is a weekday) and on subsequent weekdays. Stop repeating
   removes future occurrences but preserves today's list and history.
 - Use the date arrows to plan up to **seven days ahead**, including weekends.
-  Enter Start, End, and Task in the row below the Tasks table and press **+ Add task**
+  Enter Start, End, and Task in the row below the Today table and press **+ Add task**
   (or Enter) to save for the displayed date. No editor window opens; errors
   appear inline and keep your input. Today suggests the first free 20-minute
   slot **at or after now**, rounded up to the next minute when necessary;
@@ -81,7 +92,7 @@ Closing the window exits the app; it is not a background service or tray app.
   unfinished tasks whose slots have ended as missed (red), keeping that history.
   These missed tasks no longer keep the clock red, but can still be marked Done.
   The clock always reflects today, even when browsing history.
-- Pending tasks are light gray. After the slot's end plus the margin they turn
+- Pending tasks are gray (darker in the default dark theme). After the slot's end plus the margin they turn
   red. Completed tasks turn green, including late completions, which are marked
   **Done late** in the list and reports.
 - **Deadline margin** defaults to 10 minutes. Changes affect today's unfinished
@@ -100,8 +111,16 @@ is used and no example tasks are added automatically.
 
 ## Tests
 
+Run from the project root. Tests live in `tests/`:
+
 ```powershell
-python -m unittest -v
+python -m unittest discover -v
+```
+
+To run only storage and scheduling tests:
+
+```powershell
+python -m unittest -v tests.test_store
 ```
 
 UI tests need a desktop session with Tcl/Tk available. Tests use temporary databases
@@ -109,22 +128,22 @@ and mock startup registration; they do not change your real checklist or sign-in
 
 ## Appearance
 
-`color_scheme.py` is the single place to change colors:
+`ui/color_scheme.py` is the single place to change colors:
 
 1. Set `ACTIVE_SCHEME = "dark"` (default) or `ACTIVE_SCHEME = "light"`.
 2. To customize a scheme, edit its hex colors in `SCHEMES`. For example,
    `background` changes the window, `surface` changes the cards, and `accent`
    changes Start/Done and primary actions. Keep hover/pressed colors coordinated.
-3. `pending_*`, `done_*`, and `missed_*` control both task rows and legend boxes.
+3. `pending_*`, `done_*`, and `missed_*` control task rows, goal rows, and legend boxes.
    `clock_green`, `clock_red`, and `clock_text` control the boxed clock.
    `progress` controls the daily completion ring.
 4. Save the file and restart the app. Colors are not a separate Settings control.
 
-`style.py` imports the selected scheme and contains fonts, window sizing, and
-rounded button styles. `visuals.py` draws the two static information cards.
+`ui/style.py` imports the selected scheme and contains fonts, window sizing, and
+rounded button styles. `ui/visuals.py` draws the two static information cards.
 `app.py` assembles the UI; scheduling and history remain in `store.py`.
 
-- The only heading is **Everyday is a new chance.** There is no app branding,
+- The main window heading is **Everyday is a new chance.** There is no app branding,
   XP, level, achievements, sparkle setting, decorative shine, or animation.
 - **Daily progress** shows completed/total tasks and a percentage for the
   selected date, not lifetime statistics. An empty day shows 0 / 0 and 0%.
@@ -144,12 +163,15 @@ rounded button styles. `visuals.py` draws the two static information cards.
 Removing the former rewards/effects does not delete tasks or completion history
 and needs no database migration. An old saved effects preference is simply unused.
 
-## Redesign verification
+## Verification
 
 Standard-library tests cover selected-date progress, current/next-task timing,
 absence of rewards and effects, both color schemes, inline overlap feedback,
 task controls, rounded button states, minimum-size layout, scheduling, and history.
 Free-slot tests cover current-time boundaries, short gaps, future weekday reservations,
 template lifetimes, full schedules, inline keyboard entry, and date-specific drafts.
-They use temporary databases and do not
-change your real tasks or Windows startup settings.
+Backlog tests cover validation, persistence, atomic moves, conflict handling,
+returning removed daily tasks, and minimum-size layout. Goal tests cover target
+dates, persistence, completion, reopening, removal, and minimum-size layout.
+The full suite passed 68 tests on 9 October 2026. Tests use temporary databases
+and do not change your real tasks or Windows startup settings.

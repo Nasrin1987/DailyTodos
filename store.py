@@ -98,6 +98,10 @@ class Store:
                 duration INTEGER NOT NULL CHECK(duration BETWEEN 1 AND 540),
                 due_date TEXT NOT NULL, scheduled_task_id INTEGER
             );
+            CREATE TABLE IF NOT EXISTS goals (
+                id INTEGER PRIMARY KEY, title TEXT NOT NULL,
+                target_date TEXT NOT NULL, completed_at TEXT
+            );
         """)
         with self.db:
             columns = {row["name"] for row in self.db.execute("PRAGMA table_info(tasks)")}
@@ -111,6 +115,40 @@ class Store:
 
     def close(self) -> None:
         self.db.close()
+
+    def goals(self) -> list[sqlite3.Row]:
+        return self.db.execute(
+            "SELECT * FROM goals ORDER BY completed_at IS NOT NULL, target_date, id"
+        ).fetchall()
+
+    def add_goal(self, title: str, target_date: str, today: date) -> None:
+        title = title.strip()
+        if not title:
+            raise ValueError("Enter a goal title.")
+        try:
+            target = date.fromisoformat(target_date)
+            if target.isoformat() != target_date:
+                raise ValueError
+        except ValueError as error:
+            raise ValueError("Use a target date in YYYY-MM-DD format.") from error
+        horizon = today.replace(year=today.year + 5, day=min(today.day, 28)) if today.month == 2 else today.replace(year=today.year + 5)
+        if not today <= target <= horizon:
+            raise ValueError(f"Choose a target date between {today} and {horizon}.")
+        with self.db:
+            self.db.execute("INSERT INTO goals (title, target_date) VALUES (?, ?)", (title, target_date))
+
+    def set_goal_completed(self, goal_id: int, completed: bool, now: datetime) -> None:
+        with self.db:
+            changed = self.db.execute("UPDATE goals SET completed_at = ? WHERE id = ?",
+                                      (now.isoformat() if completed else None, goal_id)).rowcount
+        if not changed:
+            raise ValueError("Select a goal first.")
+
+    def remove_goal(self, goal_id: int) -> None:
+        with self.db:
+            changed = self.db.execute("DELETE FROM goals WHERE id = ?", (goal_id,)).rowcount
+        if not changed:
+            raise ValueError("Select a goal first.")
 
     def backlog(self) -> list[sqlite3.Row]:
         return self.db.execute(

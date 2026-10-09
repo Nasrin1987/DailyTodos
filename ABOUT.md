@@ -3,14 +3,15 @@
 Everyday is a new chance.
 
 Project: Daily Todos
-Documentation updated: 7 October 2026
+Documentation updated: 9 October 2026
 
 ## 1. Purpose and design
 
 Daily Todos is a small, offline Windows checklist for planning and working
 through the day. It combines fixed weekday routines with tasks for individual
 dates, time slots, Start and Done controls, clear status colors, and factual
-daily/monthly summaries.
+daily/monthly summaries. A backlog stores unscheduled tasks, and a separate
+five-year goals view tracks longer-term aims.
 
 The project started with a request for a very simple Windows application,
 written in Python or C++, that could run at sign-in and support an 08:00-17:00
@@ -21,7 +22,7 @@ low-distraction interface. This is a design preference, not a medical claim.
 The current interface prioritizes:
 
 - Tasks and their timing, rather than branding or reward counters.
-- One heading: "Everyday is a new chance."
+- Main window heading: "Everyday is a new chance."
 - A daily progress indicator and a current/next-task card.
 - Inline task entry, with errors beside the inputs.
 - Secondary controls in Settings, not on the main task screen.
@@ -57,12 +58,14 @@ a read-only, scrollable tab; Back to Settings returns to the controls. The viewe
 displays the document as text rather than requiring a Markdown/browser package.
 Opening About again reuses the same tab and reloads the document.
 
-The normal interface initially has Tasks, Backlog, and Settings tabs. About is added
+The normal interface initially has Today, Backlog, 5-Year Goals, and Settings
+tabs. About is added
 only when requested. Closing the main window exits the program completely;
 there is no tray process, background service, or always-running scheduler.
 
-## 3. The Tasks tab
+## 3. The Today tab
 
+Despite its name, Today also displays history and future planning dates.
 The main screen contains:
 
 - Date arrows, a Today button, and the selected date.
@@ -135,12 +138,13 @@ drafts are not written to the database and disappear when the app closes.
 When midnight arrives while viewing today, the app advances to the new day.
 Browsing a different date does not force that view back to today.
 
-### Backlog
+## 4. The Backlog tab
 
 The Backlog tab stores unscheduled tasks with a title, duration of 1-540 whole
 minutes, and a deadline date in YYYY-MM-DD format. It lists earliest deadlines
-first and labels overdue dates. Deadlines are due dates, separate from the
-scheduled task's end-plus-margin deadline, and do not prohibit later scheduling.
+first and labels overdue dates. Press + Add to backlog or Enter in an input
+to save; validation errors preserve the draft. Deadlines are due dates, separate
+from the scheduled task's end-plus-margin deadline, and allow later scheduling.
 
 Select a backlog task and choose a day from today through seven days ahead.
 Find free slot suggests a start for the full duration, considering fixed routines
@@ -155,7 +159,22 @@ scheduled_task_id. The link preserves the original due date after scheduling.
 Unscheduled items do not contribute to daily progress or completion summaries.
 Existing databases gain this table automatically without changing task history.
 
-## 4. Fixed weekday tasks
+## 5. The 5-Year Goals tab
+
+The 5-Year Goals tab stores goal titles and target dates, from today through
+five calendar years ahead. The default target is five years from today;
+February 29 maps to February 28. Press + Add goal or Enter in either input
+to save. Validation errors appear inline and preserve the draft.
+Open goals appear first, ordered by target date, and overdue goals are labeled.
+Select a goal to mark it complete or reopen it. Completed goals remain visible;
+removing a goal requires confirmation. A count shows completed versus total goals.
+Goals are stored in the local SQLite goals table (id, title, target_date,
+completed_at), created automatically for existing databases. They do not affect
+daily task slots, progress, or reports. Existing goals remain available as time
+passes, including after their target date. Goals are not automatically linked
+to backlog items or daily tasks; titles and target dates cannot currently be edited.
+
+## 6. Fixed weekday tasks
 
 Settings contains a table of routines that repeat Monday through Friday.
 Use the inline Start, End, Task, and + Add task row, or press Enter in an input.
@@ -186,7 +205,7 @@ template is stopped, while today's existing occurrence and previous history
 are preserved. Therefore its preserved time slot may still block a replacement
 today, but it no longer reserves future occurrences.
 
-## 5. Scheduling and overlap rules
+## 7. Scheduling and overlap rules
 
 Every slot must satisfy:
 
@@ -217,7 +236,7 @@ does not reserve a slot: saving checks availability again. Check-and-insert uses
 a SQLite BEGIN IMMEDIATE transaction so another app instance cannot insert a
 conflicting task between validation and the write.
 
-## 6. Status colors, the clock, and the margin
+## 8. Status colors, the clock, and the margin
 
 The default deadline margin is 10 minutes; Settings accepts 0-120 minutes.
 A task's deadline is its scheduled end plus its saved margin.
@@ -256,7 +275,7 @@ Completing at 09:10 is on time; completing later is Done late.
 Changing the margin updates unfinished tasks dated today or later. It does not
 alter completed tasks' saved margins or existing historical snapshots.
 
-## 7. Summaries and reflection
+## 9. Summaries and reflection
 
 Settings > Daily summary reports on the selected date.
 Settings > Monthly summary accepts a month in YYYY-MM format.
@@ -288,7 +307,7 @@ from the recorded first/generated day, not indefinitely into the past.
 The interface refreshes approximately once per second while open. Nothing
 runs when the application is closed.
 
-## 8. Storage, privacy, backups, and startup
+## 10. Storage, privacy, backups, and startup
 
 Normal Windows data location:
 
@@ -298,7 +317,8 @@ The application writes errors.log in the same folder. If LOCALAPPDATA is
 unavailable, the application uses a DailyTodos folder under the user's home.
 Moving the source folder does not normally move the database.
 
-Saved task titles, time slots, routine definitions, timestamps, and settings
+Saved task titles, time slots, routine definitions, backlog items, goals,
+timestamps, and settings
 stay in a local SQLite file. There is no synchronization, telemetry, network
 access, authentication, or application-level database encryption.
 
@@ -311,7 +331,7 @@ To back up or restore:
 
 A restored backup restores the records and settings it contained; later changes
 are not merged automatically. Back up source customizations separately, including
-color_scheme.py. Deleting the installation folder alone does not delete user data.
+ui/color_scheme.py. Deleting the installation folder alone does not delete user data.
 
 Windows startup uses the current user's registry Run key:
 
@@ -330,7 +350,7 @@ Before removing the app, disable sign-in startup to avoid leaving a command
 pointing to missing files. Source deletion and database deletion are separate
 decisions; there is no uninstaller.
 
-## 9. Repository architecture
+## 11. Repository architecture
 
 The project uses only Python's standard library:
 
@@ -343,17 +363,20 @@ The project uses only Python's standard library:
 
 Files and responsibilities:
 
-- app.py: main window, Tasks/Settings/About views, inline forms, button state,
-  refresh loop, reports, startup initialization, and surfaced/logged errors.
+- app.py: Today, Backlog, 5-Year Goals, Settings, and About views; inline forms,
+  button state, refresh loop, reports, startup initialization, and error feedback.
 - store.py: task records, validation, snapshots, reservations, free-slot search,
-  overlap rejection, timestamp updates, margins, and report calculations.
+  overlap rejection, timestamp updates, margins, report calculations, backlog
+  transfers, and goal persistence.
 - startup.py: Windows registry integration and quoted launcher construction.
 - launch.pyw: small no-console entry point calling app.main().
-- color_scheme.py: dark/light semantic palettes and shared status colors.
-- style.py: fonts, sizing, rounded ttk image elements, and widget styles.
-- visuals.py: two static Canvas cards, the progress ring, and title fitting.
-- test_store.py: persistence and scheduling regression tests.
-- test_app.py: UI, startup, appearance, inline-entry, and interaction tests.
+- ui/__init__.py: shared UI package for colors, styling, and dashboard visuals.
+- ui/color_scheme.py: dark/light semantic palettes and shared status colors.
+- ui/style.py: fonts, sizing, rounded ttk image elements, and widget styles.
+- ui/visuals.py: two static Canvas cards, the progress ring, and title fitting.
+- tests/__init__.py: test package enabling discovery from the project root.
+- tests/test_store.py: persistence, scheduling, backlog, and goal regression tests.
+- tests/test_app.py: UI, startup, appearance, inline-entry, and interaction tests.
 - README.md: quick-start, everyday usage, customization, and test instructions.
 - ABOUT.md: this comprehensive product, technical, and development-history guide.
 
@@ -376,30 +399,41 @@ Times are integer minutes since midnight; dates and recorded timestamps are
 ISO strings. A unique (day, template_id) constraint prevents duplicate routine
 snapshots for a date, and an index supports date-based task queries.
 
+backlog contains id, title, duration (whole minutes), due_date, and
+scheduled_task_id. NULL identifies an unscheduled item. Scheduling retains the
+source record and links it to the daily task; removing an eligible daily task
+clears that link and returns the item to the backlog. Its due date remains
+separate from the task's end-plus-margin deadline.
+
+goals contains id, title, target_date, and completed_at. A NULL completed_at
+identifies an open goal. Completing a goal records a local timestamp; reopening
+clears it.
+
 Routine snapshots copy their title, slot, and margin into tasks, keeping
 existing occurrences separate from future template behavior. Snapshot generation
 uses template lifetimes and INSERT OR IGNORE, so refreshes do not duplicate them.
 Future availability checks do not advance generated_through.
 
-Older databases without missed_at are upgraded by adding that column. Removing
+Older databases without missed_at are upgraded by adding that column.
+The backlog and goals tables are created automatically if absent. Removing
 the former rewards/effects required no task-data migration because rewards had
 been derived from saved completion history.
 
 ### Styling and customization
 
-Edit color_scheme.py and restart:
+Edit ui/color_scheme.py and restart:
 
 - ACTIVE_SCHEME selects "dark" or "light".
 - background, surface, raised, text, muted, and border define the base palette.
 - accent, accent_hover, and accent_pressed define primary button states.
 - focus, hover, pressed, disabled, and disabled_text define interaction states.
-- pending_*, done_*, and missed_* define shared row/legend colors.
+- pending_*, done_*, and missed_* define shared task/goal row and legend colors.
 - clock_green, clock_red, and clock_text define the boxed clock.
 - progress defines the completion-ring color.
 
 All palette values are hex colors. Keep text/background combinations readable.
 There is no runtime theme picker. Fonts, button radius, card height, and default/
-minimum window dimensions live in style.py, not in the UI assembly code.
+minimum window dimensions live in ui/style.py, not in the UI assembly code.
 
 Rounded ttk buttons use generated PhotoImage backgrounds with transparent
 corners and a stretchable center. Image references are retained so Tk does not
@@ -407,7 +441,7 @@ discard them. Buttons preserve hover, pressed, focus, and disabled states.
 Grid layouts reserve space for inline rows and controls, avoiding the earlier
 problem where an expanding table clipped the buttons.
 
-## 10. What we implemented and refined
+## 12. What we implemented and refined
 
 This is a chronological account of the work, not a list of additional features
 currently planned.
@@ -434,7 +468,7 @@ currently planned.
     task/timing-focused interface. Removed branding, XP, levels, achievements,
     shine, and all completion effects. Kept daily progress and current/next task.
     The heading became exactly "Everyday is a new chance."
-11. Centralized semantic colors in color_scheme.py, including editable dark and
+11. Centralized semantic colors in ui/color_scheme.py, including editable dark and
     light schemes, while retaining separate layout/typography styling.
 12. Replaced the daily-task popup with an inline row matching fixed-task entry.
     Added first-free-slot suggestions: today at/after now, future dates from
@@ -442,16 +476,27 @@ currently planned.
     custom times, per-date session drafts, inline errors, and schedule checks.
 13. Added this comprehensive About document and a Settings entry that opens it
     inside the same main window.
+14. Added Backlog with titles, durations, due dates, and atomic moves into daily
+    schedules. Removing an eligible scheduled task returns its source item.
+15. Added 5-Year Goals with target dates, completion/reopening, and local storage.
+16. Renamed the Tasks tab to Today, retaining history and future navigation.
+17. Moved the test suite into tests/ and updated discovery and document paths.
+18. Grouped colors, widget styles, and dashboard drawing in the ui/ package,
+    updating app/test imports and customization paths.
 
 The intermediate gamified version is historical context only. Its reward
 features are not active in the current application. Existing tasks and completion
 history were preserved through the redesigns.
 
-## 11. Validation and maintenance
+## 13. Validation and maintenance
 
 Run from the project folder:
 
-    python -m unittest -v test_app test_store
+    python -m unittest discover -v
+
+For storage-only validation without UI windows:
+
+    python -m unittest -v tests.test_store
 
 Tests use temporary databases and mock startup integration. They do not modify
 the user's real checklist or registry startup setting. UI tests need a desktop
@@ -471,16 +516,21 @@ Coverage includes:
 - Shared color schemes, rounded button states, and minimum-size layout.
 - Quoted startup commands and settings actions.
 - About document loading, reuse, read-only presentation, and read-error feedback.
+- Backlog validation, ordering, persistence, atomic moves, failed-move preservation,
+  return to backlog after daily-task removal, and layout.
+- Goal date validation, leap-day handling, persistence, completion, reopening,
+  removal, and layout.
 
 The inline-entry milestone passed 58 tests, and its light-theme UI run passed
 34 tests. These are historical validation counts, not fixed targets for future
-work; the current suite includes the additional About tests.
+work. On 9 October 2026, all 68 tests passed (41 UI/startup and 27 storage tests),
+including About, backlog, and goals, using discovery from the project root.
 
 When changing behavior, update README.md and this document, run the relevant
 existing tests, and verify that errors remain visible and saved history intact.
 Keep user data out of the source folder and out of any example fixtures.
 
-## 12. Limitations and troubleshooting
+## 14. Limitations and troubleshooting
 
 Current limitations:
 
@@ -492,7 +542,9 @@ Current limitations:
 - Start is a timestamp, not a duration tracker, countdown, or reminder alarm.
 - No tray mode, sound notifications, continuous background process, or automatic
   monthly notification.
-- No built-in task editing, undo, database export/import wizard, backup scheduler,
+- No built-in editing of saved tasks, backlog items, or goal titles/target dates.
+- No automatic goal-to-backlog links or goal milestones.
+- No undo, database export/import wizard, backup scheduler,
   installer, packaged executable, or single-instance enforcement.
 - Dates/times use the computer's local clock without timezone conversion.
 - Session drafts are not recovered after closing or a crash.
@@ -512,14 +564,22 @@ If a task cannot be added, check its title, HH:MM times, 08:00-17:00 boundaries,
 and the inline conflict message. A fixed task can conflict with a saved future
 weekday task even when today's list appears free.
 
-If no default slot is available, a 20-minute gap does not fit in the applicable
-schedule. Choose another date for a daily task, revise your schedule, or enter
-a shorter valid slot manually. The app never silently moves or deletes other
-tasks to make room.
+If no default daily/fixed slot is available, a 20-minute gap does not fit in the
+applicable schedule. For daily/fixed entry, you can enter a shorter valid slot
+manually. Backlog suggestions need a gap matching the full saved duration;
+choose another date or a different valid start time. The app never silently
+moves or deletes other tasks to make room.
+
+If a backlog move fails, select an item, choose today through seven days ahead,
+and check that Start plus its duration fits within 08:00-17:00 without overlap.
+The item stays in backlog on failure. A passed due date does not block the move.
+
+If a goal cannot be added, check its nonempty title and YYYY-MM-DD target date
+within today through five years ahead. Existing overdue goals remain available.
 
 If About cannot open, ensure ABOUT.md is beside app.py and readable as UTF-8.
 The app reports/logs the read error instead of displaying a blank success view.
 
 If sign-in startup stops working after moving files or Python, open the new
 installation and re-enable Run at Windows sign-in. If the UI does not fit your
-display, review scaling and the window/font sizing constants in style.py.
+display, review scaling and the window/font sizing constants in ui/style.py.

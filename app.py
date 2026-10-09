@@ -11,8 +11,8 @@ from types import TracebackType
 from collections.abc import Callable
 
 import startup
-import style
-from visuals import Dashboard
+from ui import style
+from ui.visuals import Dashboard
 from store import Store, Task, clock
 
 
@@ -30,6 +30,7 @@ class App:
         self.timer: str | None = None
         self.fixed_signature: object = None
         self.backlog_signature: object = None
+        self.goals_signature: object = None
         self.fixed_suggestion: tuple[str, str] = ("", "")
         self.daily_suggestion: tuple[str, str] = ("", "")
         self.daily_form_day = self.day
@@ -54,8 +55,10 @@ class App:
         self.tasks_tab = ttk.Frame(self.notebook)
         self.settings_tab = ttk.Frame(self.notebook)
         self.backlog_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.tasks_tab, text="Tasks")
+        self.notebook.add(self.tasks_tab, text="Today")
         self.notebook.add(self.backlog_tab, text="Backlog")
+        self.goals_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.goals_tab, text="5-Year Goals")
         self.notebook.add(self.settings_tab, text="Settings")
         self.tasks_tab.columnconfigure(0, weight=1)
         self.tasks_tab.rowconfigure(2, weight=1)
@@ -136,6 +139,7 @@ class App:
         self.footer.grid(row=5, column=0, sticky="ew")
         self._build_settings()
         self._build_backlog()
+        self._build_goals()
         self.notebook.bind(
             "<<NotebookTabChanged>>",
             lambda _event: self.reload_fixed_tasks(),
@@ -146,6 +150,103 @@ class App:
     def settings(self) -> None:
         self.notebook.select(self.settings_tab)
         self.reload_fixed_tasks()
+
+    def _build_goals(self) -> None:
+        panel = ttk.Frame(self.goals_tab, padding=12)
+        panel.pack(fill="both", expand=True)
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(1, weight=1)
+        ttk.Label(panel, text="What do you want to achieve over the next five years?",
+                  style="Heading.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 12))
+        table = ttk.Frame(panel)
+        table.grid(row=1, column=0, sticky="nsew")
+        table.columnconfigure(0, weight=1)
+        table.rowconfigure(0, weight=1)
+        self.goals_table = ttk.Treeview(table, columns=("title", "target", "status"),
+                                       show="headings", selectmode="browse")
+        for name, label, width in (("title", "Goal", 420), ("target", "Target date", 160), ("status", "Status", 160)):
+            self.goals_table.heading(name, text=label)
+            self.goals_table.column(name, width=width, stretch=name == "title")
+        for status, (background, foreground) in style.STATUS_COLORS.items():
+            self.goals_table.tag_configure(status, background=background, foreground=foreground)
+        self.goals_table.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(table, command=self.goals_table.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.goals_table.config(yscrollcommand=scrollbar.set)
+        form = ttk.Frame(panel)
+        form.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        form.columnconfigure(0, weight=1)
+        self.goal_title = tk.StringVar(master=self.root)
+        today = date.today()
+        target = today.replace(year=today.year + 5, day=min(today.day, 28)) if today.month == 2 else today.replace(year=today.year + 5)
+        self.goal_target = tk.StringVar(master=self.root, value=target.isoformat())
+        self.goal_entries = []
+        for column, (label, variable, width) in enumerate((
+            ("Goal title", self.goal_title, 40), ("Target date (YYYY-MM-DD)", self.goal_target, 24),
+        )):
+            ttk.Label(form, text=label, style="Muted.TLabel").grid(row=0, column=column, sticky="w")
+            entry = ttk.Entry(form, textvariable=variable, width=width)
+            entry.grid(row=1, column=column, sticky="ew", padx=(0, 8), pady=(4, 0))
+            entry.bind("<Return>", lambda _event: self.save_goal())
+            self.goal_entries.append(entry)
+        ttk.Button(form, text="+ Add goal", style="Accent.TButton", command=self.save_goal).grid(row=1, column=2, pady=(4, 0))
+        actions = ttk.Frame(panel)
+        actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        for label, command in (("Mark complete", lambda: self.complete_goal(True)),
+                               ("Reopen", lambda: self.complete_goal(False)), ("Remove", self.remove_goal)):
+            ttk.Button(actions, text=label, command=command).pack(side="left", padx=(0, 8))
+        self.goals_feedback = ttk.Label(panel, style="Error.TLabel", wraplength=760)
+        self.goals_feedback.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        self.goals_progress = ttk.Label(panel, style="Muted.TLabel")
+        self.goals_progress.grid(row=5, column=0, sticky="w", pady=(8, 0))
+
+    def reload_goals(self, today: date) -> None:
+        goals = self.store.goals()
+        signature = (today, tuple(tuple(goal) for goal in goals))
+        if signature == self.goals_signature:
+            return
+        selected = self.goals_table.selection()
+        self.goals_table.delete(*self.goals_table.get_children())
+        for goal in goals:
+            status = "done" if goal["completed_at"] else "missed" if goal["target_date"] < today.isoformat() else "pending"
+            self.goals_table.insert("", "end", iid=str(goal["id"]), values=(
+                goal["title"], goal["target_date"], {"done": "Completed", "missed": "Overdue", "pending": "In progress"}[status]), tags=(status,))
+        if selected and self.goals_table.exists(selected[0]):
+            self.goals_table.selection_set(selected[0])
+        completed = sum(bool(goal["completed_at"]) for goal in goals)
+        self.goals_progress.config(text=f"{completed} / {len(goals)} goals completed" if goals else "No goals yet. Add your first five-year goal above.")
+        self.goals_signature = signature
+
+    def save_goal(self) -> None:
+        try:
+            self.store.add_goal(self.goal_title.get(), self.goal_target.get(), date.today())
+        except ValueError as error:
+            self.goals_feedback.config(text=str(error))
+            return
+        self.goal_title.set("")
+        self.goals_feedback.config(text="")
+        self.refresh()
+        self.goal_entries[0].focus_set()
+
+    def complete_goal(self, completed: bool) -> None:
+        selected = self.goals_table.selection()
+        if not selected:
+            self.goals_feedback.config(text="Select a goal first.")
+            return
+        self.store.set_goal_completed(int(selected[0]), completed, datetime.now())
+        self.goals_feedback.config(text="")
+        self.refresh()
+
+    def remove_goal(self) -> None:
+        selected = self.goals_table.selection()
+        if not selected:
+            self.goals_feedback.config(text="Select a goal first.")
+            return
+        title = self.goals_table.item(selected[0], "values")[0]
+        if messagebox.askyesno("Remove goal", f"Remove '{title}'?", parent=self.root):
+            self.store.remove_goal(int(selected[0]))
+            self.goals_feedback.config(text="")
+            self.refresh()
 
     def _build_backlog(self) -> None:
         panel = ttk.Frame(self.backlog_tab, padding=12)
@@ -554,6 +655,7 @@ class App:
         self.update_buttons()
         self.reload_fixed_tasks()
         self.reload_backlog(now.date())
+        self.reload_goals(now.date())
 
 
     def refresh_progress(self, tasks: list[Task], now: datetime) -> None:
