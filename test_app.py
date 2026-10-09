@@ -475,7 +475,7 @@ class UITests(unittest.TestCase):
         self.app.settings()
         self.assertEqual(self.app.notebook.select(), str(self.app.settings_tab))
         self.assertEqual(
-            [self.app.notebook.tab(tab, "text") for tab in self.app.notebook.tabs()], ["Tasks", "Settings"]
+            [self.app.notebook.tab(tab, "text") for tab in self.app.notebook.tabs()], ["Tasks", "Backlog", "Settings"]
         )
         settings_controls = self.controls(self.app.settings_tab)
         self.assertTrue(moved <= settings_controls.keys())
@@ -510,7 +510,7 @@ class UITests(unittest.TestCase):
         self.assertEqual(self.app.notebook.select(), str(self.app.about_tab))
         self.assertEqual(
             [self.app.notebook.tab(tab, "text") for tab in self.app.notebook.tabs()],
-            ["Tasks", "Settings", "About the app"],
+            ["Tasks", "Backlog", "Settings", "About the app"],
         )
         text = self.app.about_text
         assert text is not None
@@ -544,7 +544,7 @@ class UITests(unittest.TestCase):
             document.read_text.assert_called_once_with(encoding="utf-8")
         self.assertIs(self.app.about_text, original_text)
         self.assertIs(self.app.about_tab, original_tab)
-        self.assertEqual(len(self.app.notebook.tabs()), 3)
+        self.assertEqual(len(self.app.notebook.tabs()), 4)
         assert self.app.about_text is not None
         self.assertEqual(
             self.app.about_text.get("1.0", "end-1c"),
@@ -570,7 +570,7 @@ class UITests(unittest.TestCase):
                     "About the app could not open", str(error), parent=self.root,
                 )
             self.assertIsNone(self.app.about_tab)
-            self.assertEqual(len(self.app.notebook.tabs()), 2)
+            self.assertEqual(len(self.app.notebook.tabs()), 3)
         self.app.show_about()
         text = self.app.about_text
         assert text is not None
@@ -605,6 +605,7 @@ class UITests(unittest.TestCase):
 
     def test_daily_progress_and_empty_state(self) -> None:
         self.assertEqual(self.app.dashboard.total, 0)
+
         self.assertTrue(self.app.empty_label.place_info())
         self.store.add_task("Small win", "08:00", "09:00", date.today())
         self.app.refresh()
@@ -620,6 +621,52 @@ class UITests(unittest.TestCase):
         self.app.change_day(1)
         self.assertEqual(self.app.dashboard.completed, 0)
         self.assertEqual(self.app.dashboard.total, 0)
+
+    def test_backlog_entry_and_move_to_selected_day(self) -> None:
+        target = date.today() + timedelta(days=1)
+        self.app.notebook.select(self.app.backlog_tab)
+        self.app.backlog_title.set("Plan trip")
+        self.app.backlog_duration.set("45")
+        self.app.backlog_deadline.set(target.isoformat())
+        self.app.save_backlog()
+        item = self.app.backlog_table.get_children()[0]
+        self.app.backlog_table.selection_set(item)
+        self.app.backlog_day.set(target.isoformat())
+        self.store.add_task("Busy", "08:00", "09:00", target)
+        self.app.suggest_backlog_slot()
+        self.assertEqual(self.app.backlog_start.get(), "09:00")
+        self.app.backlog_start.set("08:30")
+        self.app.schedule_backlog()
+        self.assertIn("Busy", str(self.app.backlog_feedback["text"]))
+        self.assertEqual(len(self.store.backlog()), 1)
+        self.app.backlog_start.set("09:00")
+        self.app.schedule_backlog()
+        self.assertEqual(self.store.backlog(), [])
+        self.assertEqual(self.app.day, target)
+        self.assertEqual(self.app.notebook.select(), str(self.app.tasks_tab))
+        self.assertEqual(self.store.tasks(target)[1].end, 585)
+
+    def test_backlog_invalid_entry_keeps_draft(self) -> None:
+        self.app.backlog_title.set("Draft")
+        self.app.backlog_duration.set("bad")
+        self.app.save_backlog()
+        self.assertIn("whole minutes", str(self.app.backlog_feedback["text"]))
+        self.assertEqual(self.app.backlog_title.get(), "Draft")
+        self.assertEqual(self.store.backlog(), [])
+
+    def test_backlog_controls_fit_minimum_window(self) -> None:
+        self.root.geometry(f"{style.MIN_WINDOW_SIZE[0]}x{style.MIN_WINDOW_SIZE[1]}")
+        self.root.deiconify()
+        self.root.wait_visibility()
+        self.app.notebook.select(self.app.backlog_tab)
+        self.root.update()
+        for control in [*self.app.backlog_entries, *self.controls(self.app.backlog_tab).values()]:
+            with self.subTest(control=str(control)):
+                self.assertTrue(control.winfo_ismapped())
+                self.assertLessEqual(control.winfo_rootx() - self.root.winfo_rootx() + control.winfo_reqwidth(),
+                                     self.root.winfo_width())
+                self.assertLessEqual(control.winfo_rooty() - self.root.winfo_rooty() + control.winfo_reqheight(),
+                                     self.root.winfo_height())
 
     def test_simple_ui_has_no_branding_rewards_or_effects(self) -> None:
         self.assertEqual(self.root.title(), "Everyday is a new chance.")

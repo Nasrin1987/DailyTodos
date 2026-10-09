@@ -29,6 +29,7 @@ class App:
         self.signature: object = None
         self.timer: str | None = None
         self.fixed_signature: object = None
+        self.backlog_signature: object = None
         self.fixed_suggestion: tuple[str, str] = ("", "")
         self.daily_suggestion: tuple[str, str] = ("", "")
         self.daily_form_day = self.day
@@ -52,7 +53,9 @@ class App:
         self.notebook.pack(fill="both", expand=True, padx=24, pady=(16, 12))
         self.tasks_tab = ttk.Frame(self.notebook)
         self.settings_tab = ttk.Frame(self.notebook)
+        self.backlog_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.tasks_tab, text="Tasks")
+        self.notebook.add(self.backlog_tab, text="Backlog")
         self.notebook.add(self.settings_tab, text="Settings")
         self.tasks_tab.columnconfigure(0, weight=1)
         self.tasks_tab.rowconfigure(2, weight=1)
@@ -132,6 +135,7 @@ class App:
         )
         self.footer.grid(row=5, column=0, sticky="ew")
         self._build_settings()
+        self._build_backlog()
         self.notebook.bind(
             "<<NotebookTabChanged>>",
             lambda _event: self.reload_fixed_tasks(),
@@ -142,6 +146,137 @@ class App:
     def settings(self) -> None:
         self.notebook.select(self.settings_tab)
         self.reload_fixed_tasks()
+
+    def _build_backlog(self) -> None:
+        panel = ttk.Frame(self.backlog_tab, padding=12)
+        panel.pack(fill="both", expand=True)
+        panel.columnconfigure(0, weight=1)
+        panel.rowconfigure(1, weight=1)
+        ttk.Label(panel, text="Save tasks here, then move them into a day's schedule.",
+                  style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 12))
+        table = ttk.Frame(panel)
+        table.grid(row=1, column=0, sticky="nsew")
+        table.columnconfigure(0, weight=1)
+        table.rowconfigure(0, weight=1)
+        self.backlog_table = ttk.Treeview(table, columns=("title", "duration", "deadline"),
+                                         show="headings", selectmode="browse")
+        for name, label, width in (("title", "Task", 420), ("duration", "Duration", 120),
+                                   ("deadline", "Deadline", 200)):
+            self.backlog_table.heading(name, text=label)
+            self.backlog_table.column(name, width=width, stretch=name == "title")
+        self.backlog_table.tag_configure("overdue", foreground=style.COLORS["error"])
+        self.backlog_table.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(table, command=self.backlog_table.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.backlog_table.config(yscrollcommand=scrollbar.set)
+        self.backlog_table.bind("<<TreeviewSelect>>", lambda _event: self.suggest_backlog_slot())
+        form = ttk.Frame(panel)
+        form.grid(row=2, column=0, sticky="ew", pady=(12, 0))
+        form.columnconfigure(0, weight=1)
+        self.backlog_title = tk.StringVar(master=self.root)
+        self.backlog_duration = tk.StringVar(master=self.root, value="20")
+        self.backlog_deadline = tk.StringVar(master=self.root, value=date.today().isoformat())
+        self.backlog_entries = []
+        for column, (label, variable, width) in enumerate((
+            ("Title", self.backlog_title, 30), ("Duration (minutes)", self.backlog_duration, 16),
+            ("Deadline (YYYY-MM-DD)", self.backlog_deadline, 22),
+        )):
+            ttk.Label(form, text=label, style="Muted.TLabel").grid(row=0, column=column, sticky="w")
+            entry = ttk.Entry(form, textvariable=variable, width=width)
+            entry.grid(row=1, column=column, sticky="ew", padx=(0, 8), pady=(4, 0))
+            entry.bind("<Return>", lambda _event: self.save_backlog())
+            self.backlog_entries.append(entry)
+        ttk.Button(form, text="+ Add to backlog", style="Accent.TButton", command=self.save_backlog).grid(
+            row=1, column=3, pady=(4, 0))
+        schedule = ttk.LabelFrame(panel, text="Schedule selected task", padding=12)
+        schedule.grid(row=3, column=0, sticky="ew", pady=(12, 0))
+        self.backlog_day = tk.StringVar(master=self.root, value=self.day.isoformat())
+        self.backlog_start = tk.StringVar(master=self.root)
+        ttk.Label(schedule, text="Day").grid(row=0, column=0, sticky="w")
+        self.backlog_date_picker = ttk.Combobox(schedule, textvariable=self.backlog_day, width=12, state="readonly")
+        self.backlog_date_picker.grid(row=1, column=0, padx=(0, 8))
+        self.backlog_date_picker.bind("<<ComboboxSelected>>", lambda _event: self.suggest_backlog_slot())
+        ttk.Label(schedule, text="Start (HH:MM)").grid(row=0, column=1, sticky="w")
+        ttk.Entry(schedule, textvariable=self.backlog_start, width=12).grid(row=1, column=1, padx=(0, 8))
+        ttk.Button(schedule, text="Find free slot", command=self.suggest_backlog_slot).grid(row=1, column=2, padx=(0, 8))
+        ttk.Button(schedule, text="Move to day", style="Accent.TButton", command=self.schedule_backlog).grid(row=1, column=3)
+        ttk.Button(schedule, text="Remove", command=self.remove_backlog).grid(row=1, column=4, padx=(8, 0))
+        self.backlog_feedback = ttk.Label(panel, style="Error.TLabel", wraplength=760)
+        self.backlog_feedback.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        ttk.Label(panel, text="Deadline is a due date. Scheduling after it is allowed. Removing an unstarted\nscheduled task returns it to the backlog.",
+                  style="Muted.TLabel").grid(row=5, column=0, sticky="w", pady=(8, 0))
+
+    def reload_backlog(self, today: date) -> None:
+        items = self.store.backlog()
+        signature = (today, tuple(tuple(item) for item in items))
+        if signature != self.backlog_signature:
+            selection = self.backlog_table.selection()
+            self.backlog_table.delete(*self.backlog_table.get_children())
+            for item in items:
+                overdue = item["due_date"] < today.isoformat()
+                self.backlog_table.insert("", "end", iid=str(item["id"]), values=(
+                    item["title"], f"{item['duration']} min", item["due_date"] + (" (overdue)" if overdue else "")),
+                    tags=("overdue",) if overdue else ())
+            if selection and self.backlog_table.exists(selection[0]):
+                self.backlog_table.selection_set(selection[0])
+            self.backlog_signature = signature
+        dates = [(today + timedelta(days=offset)).isoformat() for offset in range(8)]
+        self.backlog_date_picker.config(values=dates)
+        if self.backlog_day.get() not in dates:
+            self.backlog_day.set(today.isoformat())
+
+    def save_backlog(self) -> None:
+        try:
+            self.store.add_backlog(self.backlog_title.get(), self.backlog_duration.get(), self.backlog_deadline.get())
+        except ValueError as error:
+            self.backlog_feedback.config(text=str(error))
+            return
+        self.backlog_title.set("")
+        self.backlog_feedback.config(text="")
+        self.refresh()
+        self.backlog_entries[0].focus_set()
+
+    def suggest_backlog_slot(self) -> None:
+        selected = self.backlog_table.selection()
+        if not selected:
+            return
+        item = next((item for item in self.store.backlog() if str(item["id"]) == selected[0]), None)
+        if item is None:
+            return
+        now = datetime.now()
+        day = date.fromisoformat(self.backlog_day.get())
+        earliest = now.hour * 60 + now.minute + int(bool(now.second or now.microsecond)) if day == now.date() else 480
+        slot = self.store.first_free_slot(day, earliest, item["duration"])
+        self.backlog_start.set(clock(slot[0]) if slot else "")
+        self.backlog_feedback.config(text="" if slot else "No free slot fits this task's duration. Choose another day or enter a start time.")
+
+    def schedule_backlog(self) -> None:
+        selected = self.backlog_table.selection()
+        if not selected:
+            self.backlog_feedback.config(text="Select a backlog task first.")
+            return
+        try:
+            day = date.fromisoformat(self.backlog_day.get())
+            self.store.schedule_backlog(int(selected[0]), day, self.backlog_start.get(), datetime.now())
+        except ValueError as error:
+            self.backlog_feedback.config(text=str(error))
+            return
+        self.backlog_feedback.config(text="")
+        self.backlog_start.set("")
+        self.day = day
+        self.refresh()
+        self.notebook.select(self.tasks_tab)
+
+    def remove_backlog(self) -> None:
+        selected = self.backlog_table.selection()
+        if not selected:
+            self.backlog_feedback.config(text="Select a backlog task first.")
+            return
+        title = self.backlog_table.item(selected[0], "values")[0]
+        if messagebox.askyesno("Remove backlog task", f"Remove '{title}'?", parent=self.root):
+            self.store.remove_backlog(int(selected[0]))
+            self.backlog_feedback.config(text="")
+            self.refresh()
 
     def _build_settings(self) -> None:
         self.settings_tab.columnconfigure(0, weight=1)
@@ -418,6 +553,8 @@ class App:
         self.suggest_times(now)
         self.update_buttons()
         self.reload_fixed_tasks()
+        self.reload_backlog(now.date())
+
 
     def refresh_progress(self, tasks: list[Task], now: datetime) -> None:
         completed = sum(bool(task.done_at) for task in tasks)

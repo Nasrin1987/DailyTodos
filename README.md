@@ -30,6 +30,17 @@ Closing the window exits the app; it is not a background service or tray app.
 
 ## Use
 
+- **Backlog**: save a title, duration in whole minutes (1-540), and deadline
+  date (`YYYY-MM-DD`). Items are sorted by deadline, with overdue dates labeled.
+  Select an item, choose today or a date up to seven days ahead, and use
+  **Find free slot** to suggest a start time for its full duration. You can edit
+  Start before pressing **Move to day**. The move checks normal schedule rules,
+  removes the item from Backlog, and opens that day's Tasks view. If scheduling
+  fails, the item stays in Backlog. Deadlines are due dates; scheduling after
+  them is allowed. Removing an eligible unstarted scheduled task returns it to
+  Backlog with its original duration and deadline. Backlog items persist locally
+  and do not count toward daily progress until scheduled.
+
 - Switch between **Tasks** and **Settings** tabs in the same window. Settings
   contains summaries, fixed weekday tasks, the deadline margin, sign-in startup,
   and About the app.

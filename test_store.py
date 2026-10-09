@@ -9,6 +9,42 @@ from store import Store, TaskOverlapError, validate_task
 
 
 class StoreTests(unittest.TestCase):
+    def test_backlog_validation_order_and_persistence(self) -> None:
+        for title, duration, deadline in (("", "20", "2026-10-05"), ("x", "0", "2026-10-05"),
+                                          ("x", "541", "2026-10-05"), ("x", "1.5", "2026-10-05"),
+                                          ("x", "20", "2026-02-30"), ("x", "20", "20261005")):
+            with self.subTest(title=title, duration=duration, deadline=deadline), self.assertRaises(ValueError):
+                self.store.add_backlog(title, duration, deadline)
+        self.store.add_backlog(" Later ", "45", "2026-10-12")
+        self.store.add_backlog("Urgent", "30", "2026-10-05")
+        self.store.close()
+        self.store = Store(self.path)
+        self.assertEqual([row["title"] for row in self.store.backlog()], ["Urgent", "Later"])
+
+    def test_backlog_move_is_atomic_and_preserves_due_date(self) -> None:
+        self.store.add_backlog("Work", "45", "2026-10-05")
+        item = self.store.backlog()[0]
+        now = datetime(2026, 10, 5, 8)
+        future = self.day + timedelta(days=1)
+        self.store.add_template("Routine", "08:00", "09:00", self.day)
+        for day, start in ((future, "08:30"), (future, "16:30"), (self.day - timedelta(days=1), "09:00"),
+                           (self.day + timedelta(days=8), "09:00")):
+            with self.subTest(day=day, start=start), self.assertRaises(ValueError):
+                self.store.schedule_backlog(item["id"], day, start, now)
+            self.assertEqual(len(self.store.backlog()), 1)
+            self.assertEqual(self.store.tasks(future), [])
+        self.store.schedule_backlog(item["id"], future, "09:00", now)
+        self.assertEqual(self.store.backlog(), [])
+        task = self.store.tasks(future)[0]
+        self.assertEqual((task.title, task.start, task.end), ("Work", 540, 585))
+        with self.assertRaises(ValueError):
+            self.store.schedule_backlog(item["id"], future, "10:00", now)
+        self.assertEqual(len(self.store.tasks(future)), 1)
+        self.store.remove_task(task.id, future)
+        self.assertEqual(self.store.backlog()[0]["due_date"], "2026-10-05")
+        self.store.remove_backlog(item["id"])
+        self.assertEqual(self.store.backlog(), [])
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.day = date(2026, 10, 5)  # Monday

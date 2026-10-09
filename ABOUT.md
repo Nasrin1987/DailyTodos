@@ -57,7 +57,7 @@ a read-only, scrollable tab; Back to Settings returns to the controls. The viewe
 displays the document as text rather than requiring a Markdown/browser package.
 Opening About again reuses the same tab and reloads the document.
 
-The normal interface initially has Tasks and Settings tabs. About is added
+The normal interface initially has Tasks, Backlog, and Settings tabs. About is added
 only when requested. Closing the main window exits the program completely;
 there is no tray process, background service, or always-running scheduler.
 
@@ -134,6 +134,26 @@ drafts are not written to the database and disappear when the app closes.
 
 When midnight arrives while viewing today, the app advances to the new day.
 Browsing a different date does not force that view back to today.
+
+### Backlog
+
+The Backlog tab stores unscheduled tasks with a title, duration of 1-540 whole
+minutes, and a deadline date in YYYY-MM-DD format. It lists earliest deadlines
+first and labels overdue dates. Deadlines are due dates, separate from the
+scheduled task's end-plus-margin deadline, and do not prohibit later scheduling.
+
+Select a backlog task and choose a day from today through seven days ahead.
+Find free slot suggests a start for the full duration, considering fixed routines
+and saved tasks. Today searches at or after now; future days search from 08:00.
+You may edit Start. Move to day validates the slot and atomically creates the
+daily task and removes the item from the visible backlog, then opens that day.
+A failed move preserves the item. Removing an eligible unstarted daily task
+returns its source item to the backlog. Backlog removal requires confirmation.
+
+The SQLite backlog table retains id, title, duration, due_date, and an optional
+scheduled_task_id. The link preserves the original due date after scheduling.
+Unscheduled items do not contribute to daily progress or completion summaries.
+Existing databases gain this table automatically without changing task history.
 
 ## 4. Fixed weekday tasks
 

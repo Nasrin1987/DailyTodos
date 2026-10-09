@@ -93,6 +93,11 @@ class Store:
                 UNIQUE(day, template_id)
             );
             CREATE INDEX IF NOT EXISTS tasks_day ON tasks(day);
+            CREATE TABLE IF NOT EXISTS backlog (
+                id INTEGER PRIMARY KEY, title TEXT NOT NULL,
+                duration INTEGER NOT NULL CHECK(duration BETWEEN 1 AND 540),
+                due_date TEXT NOT NULL, scheduled_task_id INTEGER
+            );
         """)
         with self.db:
             columns = {row["name"] for row in self.db.execute("PRAGMA table_info(tasks)")}
@@ -106,6 +111,62 @@ class Store:
 
     def close(self) -> None:
         self.db.close()
+
+    def backlog(self) -> list[sqlite3.Row]:
+        return self.db.execute(
+            "SELECT * FROM backlog WHERE scheduled_task_id IS NULL ORDER BY due_date, id"
+        ).fetchall()
+
+    def add_backlog(self, title: str, duration: str, due_date: str) -> None:
+        title = title.strip()
+        if not title:
+            raise ValueError("Enter a task name.")
+        try:
+            length = int(duration)
+        except (ValueError, TypeError) as error:
+            raise ValueError("Enter a duration in whole minutes (1-540).") from error
+        if not 1 <= length <= 540:
+            raise ValueError("Enter a duration in whole minutes (1-540).")
+        try:
+            due = date.fromisoformat(due_date).isoformat()
+            if due != due_date:
+                raise ValueError
+        except ValueError as error:
+            raise ValueError("Use a deadline date in YYYY-MM-DD format.") from error
+        with self.db:
+            self.db.execute(
+                "INSERT INTO backlog (title, duration, due_date) VALUES (?, ?, ?)",
+                (title, length, due),
+            )
+
+    def schedule_backlog(self, item_id: int, day: date, start: str, now: datetime) -> None:
+        if not now.date() <= day <= now.date() + timedelta(days=7):
+            raise ValueError("Choose a date from today through seven days ahead.")
+        with self.db:
+            self.db.execute("BEGIN IMMEDIATE")
+            item = self.db.execute(
+                "SELECT * FROM backlog WHERE id = ? AND scheduled_task_id IS NULL", (item_id,)
+            ).fetchone()
+            if item is None:
+                raise ValueError("This backlog task has already been scheduled or removed.")
+            begin = minutes(start)
+            title, begin, finish = validate_task(item["title"], start, clock(begin + item["duration"]))
+            self._check_overlap(begin, finish, day, recurring=False)
+            task = self.db.execute(
+                "INSERT INTO tasks (day, title, start, end, margin) VALUES (?, ?, ?, ?, ?)",
+                (day.isoformat(), title, begin, finish, int(self.setting("margin"))),
+            )
+            self.db.execute(
+                "UPDATE backlog SET scheduled_task_id = ? WHERE id = ?", (task.lastrowid, item_id)
+            )
+
+    def remove_backlog(self, item_id: int) -> None:
+        with self.db:
+            changed = self.db.execute(
+                "DELETE FROM backlog WHERE id = ? AND scheduled_task_id IS NULL", (item_id,)
+            ).rowcount
+        if not changed:
+            raise ValueError("Select an unscheduled backlog task first.")
 
     def setting(self, key: str, default: str = "") -> str:
         row = self.db.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
@@ -272,6 +333,8 @@ class Store:
                 AND template_id IS NULL AND started_at IS NULL AND done_at IS NULL
                 AND missed_at IS NULL
             """, (task_id, day.isoformat())).rowcount
+            if changed:
+                self.db.execute("UPDATE backlog SET scheduled_task_id = NULL WHERE scheduled_task_id = ?", (task_id,))
         if not changed:
             raise ValueError("Only an unstarted date-specific task from the selected date can be removed.")
 
